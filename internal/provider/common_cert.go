@@ -30,6 +30,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
+type BasicConstraints struct {
+	IsCA bool `asn1:"optional"`
+}
+
 var keyUsages = map[string]x509.KeyUsage{
 	"digital_signature":  x509.KeyUsageDigitalSignature,
 	"content_commitment": x509.KeyUsageContentCommitment,
@@ -59,21 +63,33 @@ var extendedKeyUsages = map[string]x509.ExtKeyUsage{
 	"microsoft_kernel_code_signing":     x509.ExtKeyUsageMicrosoftKernelCodeSigning,
 }
 
+var keyUsageBits = map[string]int{
+	"digital_signature":  0x80,  // Bit 0
+	"content_commitment": 0x40,  // Bit 1
+	"key_encipherment":   0x20,  // Bit 2
+	"data_encipherment":  0x10,  // Bit 3
+	"key_agreement":      0x08,  // Bit 4
+	"cert_signing":       0x04,  // Bit 5
+	"crl_signing":        0x02,  // Bit 6
+	"encipher_only":      0x01,  // Bit 7 (encipherOnly in first byte)
+	"decipher_only":      0x100, // Bit 8 (decipherOnly in second byte)
+}
+
 var extendedKeyUsageOIDs = map[string]asn1.ObjectIdentifier{
-	"any_extended":                      asn1.ObjectIdentifier{2, 5, 29, 37, 0},
-	"server_auth":                       asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 1},
-	"client_auth":                       asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 2},
-	"code_signing":                      asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 3},
-	"email_protection":                  asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 4},
-	"ipsec_end_system":                  asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 5},
-	"ipsec_tunnel":                      asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 6},
-	"ipsec_user":                        asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 7},
-	"timestamping":                      asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 8},
-	"ocsp_signing":                      asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 9},
-	"microsoft_server_gated_crypto":     asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 10, 3, 3},
-	"netscape_server_gated_crypto":      asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 4, 1},
-	"microsoft_commercial_code_signing": asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 2, 1, 22},
-	"microsoft_kernel_code_signing":     asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 61, 1, 1},
+	"any_extended":                      {2, 5, 29, 37, 0},
+	"server_auth":                       {1, 3, 6, 1, 5, 5, 7, 3, 1},
+	"client_auth":                       {1, 3, 6, 1, 5, 5, 7, 3, 2},
+	"code_signing":                      {1, 3, 6, 1, 5, 5, 7, 3, 3},
+	"email_protection":                  {1, 3, 6, 1, 5, 5, 7, 3, 4},
+	"ipsec_end_system":                  {1, 3, 6, 1, 5, 5, 7, 3, 5},
+	"ipsec_tunnel":                      {1, 3, 6, 1, 5, 5, 7, 3, 6},
+	"ipsec_user":                        {1, 3, 6, 1, 5, 5, 7, 3, 7},
+	"timestamping":                      {1, 3, 6, 1, 5, 5, 7, 3, 8},
+	"ocsp_signing":                      {1, 3, 6, 1, 5, 5, 7, 3, 9},
+	"microsoft_server_gated_crypto":     {1, 3, 6, 1, 4, 1, 311, 10, 3, 3},
+	"netscape_server_gated_crypto":      {2, 16, 840, 1, 113730, 4, 1},
+	"microsoft_commercial_code_signing": {1, 3, 6, 1, 4, 1, 311, 2, 1, 22},
+	"microsoft_kernel_code_signing":     {1, 3, 6, 1, 4, 1, 311, 61, 1, 1},
 }
 
 // supportedKeyUsagesStr returns a slice with all the keys in keyUsages and extendedKeyUsages.
@@ -83,18 +99,6 @@ func supportedKeyUsagesStr() []string {
 	for k := range keyUsages {
 		res = append(res, k)
 	}
-	for k := range extendedKeyUsages {
-		res = append(res, k)
-	}
-	sort.Strings(res)
-
-	return res
-}
-
-// supportedEtendedKeyUsagesStr returns a slice with all the keys in extraExtensions.
-func supportedEtendedKeyUsagesStr() []string {
-	res := make([]string, 0, len(extendedKeyUsages))
-
 	for k := range extendedKeyUsages {
 		res = append(res, k)
 	}

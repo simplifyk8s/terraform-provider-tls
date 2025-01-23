@@ -98,11 +98,19 @@ func (r *certRequestResource) Schema(_ context.Context, req resource.SchemaReque
 				},
 				Validators: []validator.List{
 					listvalidator.ValueStringsAre(
-						stringvalidator.OneOf(supportedEtendedKeyUsagesStr()...),
+						stringvalidator.OneOf(supportedKeyUsagesStr()...),
 					),
 				},
-				Description: "List of key usages for the certificate singing request. " +
-					fmt.Sprintf("Accepted values: `%s`.", strings.Join(supportedEtendedKeyUsagesStr(), "`, `")),
+				Description: "List of key usages allowed for the issued certificate. " +
+					"Values are defined in [RFC 5280](https://datatracker.ietf.org/doc/html/rfc5280) " +
+					"and combine flags defined by both " +
+					"[Key Usages](https://datatracker.ietf.org/doc/html/rfc5280#section-4.2.1.3) " +
+					"and [Extended Key Usages](https://datatracker.ietf.org/doc/html/rfc5280#section-4.2.1.12). " +
+					fmt.Sprintf("Accepted values: `%s`.", strings.Join(supportedKeyUsagesStr(), "`, `")),
+			},
+			"ca_constraint": schema.BoolAttribute{
+				Optional:    true,
+				Description: "Boolean flag to indicate if the CA constraint should be added to the certificate request.",
 			},
 
 			// Computed attributes
@@ -324,33 +332,83 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 
 	// Add AllowedUses if provided
 	if !newState.AllowedUses.IsNull() && !newState.AllowedUses.IsUnknown() && len(newState.AllowedUses.Elements()) > 0 {
-		tflog.Debug(ctx, "Adding key usages in certificate request", map[string]interface{}{
-			"extraExtensions": newState.AllowedUses,
+		tflog.Debug(ctx, "Adding key usages and extended key usages in certificate request", map[string]interface{}{
+			"allowedUses": newState.AllowedUses,
 		})
 
-		var extKeyUsages []string
-		res.Diagnostics.Append(newState.AllowedUses.ElementsAs(ctx, &extKeyUsages, false)...)
+		var keyUsageBitsValue int
+		var extKeyUsages []asn1.ObjectIdentifier
+		var allowedUses types.List
+
+		res.Diagnostics.Append(newState.AllowedUses.ElementsAs(ctx, &allowedUses, false)...)
 		if res.Diagnostics.HasError() {
 			return
 		}
 
-		var extKeyUsageOIDs []asn1.ObjectIdentifier
-		for _, extKeyUsageStr := range extKeyUsages {
-			extKeyUsageOID, ok := extendedKeyUsageOIDs[extKeyUsageStr]
-			if !ok {
-				res.Diagnostics.AddError("Invalid key usage", fmt.Sprintf("%#v unsupported", extKeyUsageStr))
+		for _, keyUse := range allowedUses.Elements() {
+			keyUseName := keyUse.(types.String).ValueString()
+
+			// Key Usage Verarbeitung mit Map
+			if bit, ok := keyUsageBits[keyUseName]; ok {
+				// TODO
+				keyUsageBitsValue |= bit
+			} else if oid, ok := extendedKeyUsageOIDs[keyUseName]; ok {
+				// Extended Key Usage Verarbeitung
+				extKeyUsages = append(extKeyUsages, oid)
+			} else {
+				res.Diagnostics.AddError("Invalid usage", fmt.Sprintf("%#v is unsupported", keyUseName))
 				return
 			}
-			extKeyUsageOIDs = append(extKeyUsageOIDs, extKeyUsageOID)
 		}
-		asn1ExtKeyUsages, err := asn1.Marshal(extKeyUsageOIDs)
+
+		// TODO keyUsage vorbereiten, möglicherweise mit asn1.Marshal oder asn1.BitString
+		keyUsageASN1, err := asn1.Marshal(asn1.BitString{
+			Bytes:     []byte{byte(keyUsageBitsValue)},
+			BitLength: 8,
+		})
 		if err != nil {
-			res.Diagnostics.AddError("Error creating key usage list for certificate request", err.Error())
+			res.Diagnostics.AddError("Error marshaling key usage", err.Error())
 			return
 		}
+
+		// Key Usage Erweiterung in ExtraExtensions einfügen
 		certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
-			Id:    asn1.ObjectIdentifier{2, 5, 29, 37},
-			Value: asn1ExtKeyUsages,
+			Id:       asn1.ObjectIdentifier{2, 5, 29, 15}, // OID für Key Usage
+			Critical: true,
+			Value:    keyUsageASN1,
+		})
+
+		// Extended Key Usages kodieren
+		if len(extKeyUsages) > 0 {
+			extKeyUsagesASN1, err := asn1.Marshal(extKeyUsages)
+			if err != nil {
+				res.Diagnostics.AddError("Error marshaling extended key usages", err.Error())
+				return
+			}
+
+			// Extended Key Usage Erweiterung in ExtraExtensions einfügen
+			certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
+				Id:       asn1.ObjectIdentifier{2, 5, 29, 37}, // OID für Extended Key Usage
+				Critical: false,                               // Extended Key Usages sind normalerweise nicht kritisch
+				Value:    extKeyUsagesASN1,
+			})
+		}
+	}
+
+	// Add Basic Constraints for CA:true if ca_constraint is true
+	if newState.CAConstraint.ValueBool() {
+		basicConstraints := BasicConstraints{IsCA: true}
+		basicConstraintsASN1, err := asn1.Marshal(basicConstraints)
+		if err != nil {
+			res.Diagnostics.AddError("Error marshaling basic constraints", err.Error())
+			return
+		}
+
+		// Basic Constraints Erweiterung in ExtraExtensions einfügen
+		certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
+			Id:       asn1.ObjectIdentifier{2, 5, 29, 19}, // OID für Basic Constraints
+			Critical: true,
+			Value:    basicConstraintsASN1,
 		})
 	}
 
