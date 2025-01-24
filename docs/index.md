@@ -6,6 +6,10 @@ description: |-
 
 # TLS Provider
 
+> FORK!
+> This is a fork of the original `tls` provider. The original provider is maintained by HashiCorp and can be found [here](https://registry.terraform.io/providers/hashicorp/tls/latest/docs).
+> The provider was forked to add additional features.
+
 The TLS provider provides utilities for working with *Transport Layer Security*
 keys and certificates. It provides resources that
 allow private keys, certificates and certificate requests to be
