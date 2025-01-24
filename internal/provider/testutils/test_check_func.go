@@ -97,7 +97,7 @@ var invertedKeyUsageBits = map[int]string{
 func TestCheckPEMCertificateRequestKeyUsage(name, key string, expected []string) r.TestCheckFunc {
 	return TestCheckPEMCertificateRequestWith(name, key, func(csr *x509.CertificateRequest) error {
 		for _, ext := range csr.Extensions {
-			if ext.Id.Equal([]int{2, 5, 29, 15}) { // OID for Key Usage
+			if ext.Id.Equal([]int{2, 5, 29, 15}) { // oid for key usage
 				var keyUsage asn1.BitString
 				_, err := asn1.Unmarshal(ext.Value, &keyUsage)
 				if err != nil {
@@ -117,7 +117,7 @@ func TestCheckPEMCertificateRequestKeyUsage(name, key string, expected []string)
 					}
 				}
 
-				// Check for unexpected key usages
+				// check for unexpected key usages
 				for bit, name := range invertedKeyUsageBits {
 					if actualKeyUsage&bit != 0 && expectedBits&bit == 0 {
 						return fmt.Errorf("unexpected key usage %s found in actual key usage %08b", name, actualKeyUsage)
@@ -134,7 +134,7 @@ func TestCheckPEMCertificateRequestKeyUsage(name, key string, expected []string)
 func TestCheckPEMCertificateRequestBasicConstraints(name, key string, expectedCA bool) r.TestCheckFunc {
 	return TestCheckPEMCertificateRequestWith(name, key, func(csr *x509.CertificateRequest) error {
 		for _, ext := range csr.Extensions {
-			if ext.Id.Equal([]int{2, 5, 29, 19}) { // OID for Basic Constraints
+			if ext.Id.Equal([]int{2, 5, 29, 19}) { // oid for basic constraints
 				var basicConstraints struct {
 					IsCA bool `asn1:"optional"`
 				}

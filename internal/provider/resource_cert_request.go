@@ -346,14 +346,13 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 		}
 
 		for _, keyUse := range allowedUses.Elements() {
+			//nolint:forcetypeassert
 			keyUseName := keyUse.(types.String).ValueString()
 
-			// Key Usage Verarbeitung mit Map
+			// check if allowedUse element is keyUsage or extendedKeyUsage
 			if bit, ok := keyUsageBits[keyUseName]; ok {
-				// TODO
 				keyUsageBitsValue |= bit
 			} else if oid, ok := extendedKeyUsageOIDs[keyUseName]; ok {
-				// Extended Key Usage Verarbeitung
 				extKeyUsages = append(extKeyUsages, oid)
 			} else {
 				res.Diagnostics.AddError("Invalid usage", fmt.Sprintf("%#v is unsupported", keyUseName))
@@ -361,7 +360,7 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 			}
 		}
 
-		// TODO keyUsage vorbereiten, möglicherweise mit asn1.Marshal oder asn1.BitString
+		// keyUsage must be transformed into an ASN.1 bit string
 		keyUsageASN1, err := asn1.Marshal(asn1.BitString{
 			Bytes:     []byte{byte(keyUsageBitsValue)},
 			BitLength: 8,
@@ -371,14 +370,14 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 			return
 		}
 
-		// Key Usage Erweiterung in ExtraExtensions einfügen
+		// keyUsage must be added to extraExrensions instead of Extensions because CreateCertificateRequest() only uses ExtraExtensions
 		certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
-			Id:       asn1.ObjectIdentifier{2, 5, 29, 15}, // OID für Key Usage
+			Id:       asn1.ObjectIdentifier{2, 5, 29, 15}, // oid for keyUsage
 			Critical: true,
 			Value:    keyUsageASN1,
 		})
 
-		// Extended Key Usages kodieren
+		// add extended key usages if any
 		if len(extKeyUsages) > 0 {
 			extKeyUsagesASN1, err := asn1.Marshal(extKeyUsages)
 			if err != nil {
@@ -386,10 +385,9 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 				return
 			}
 
-			// Extended Key Usage Erweiterung in ExtraExtensions einfügen
 			certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
-				Id:       asn1.ObjectIdentifier{2, 5, 29, 37}, // OID für Extended Key Usage
-				Critical: false,                               // Extended Key Usages sind normalerweise nicht kritisch
+				Id:       asn1.ObjectIdentifier{2, 5, 29, 37}, // oid for extendedKeyUsage
+				Critical: false,                               // extendedKeyUsage is are not critical by default
 				Value:    extKeyUsagesASN1,
 			})
 		}
@@ -404,9 +402,8 @@ func (r *certRequestResource) Create(ctx context.Context, req resource.CreateReq
 			return
 		}
 
-		// Basic Constraints Erweiterung in ExtraExtensions einfügen
 		certReq.ExtraExtensions = append(certReq.ExtraExtensions, pkix.Extension{
-			Id:       asn1.ObjectIdentifier{2, 5, 29, 19}, // OID für Basic Constraints
+			Id:       asn1.ObjectIdentifier{2, 5, 29, 19}, // oid for basicConstraints
 			Critical: true,
 			Value:    basicConstraintsASN1,
 		})
